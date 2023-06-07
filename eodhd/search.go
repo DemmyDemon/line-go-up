@@ -13,6 +13,9 @@ import (
 const BaseURL = "https://eodhistoricaldata.com/api"
 const SearchPath = "/search/"
 
+// LongTime is considered "a long time" to avoid invalid expiry times. Should be a fairly unique time to be able to compare to to check if it's a "real" duration or this specific one.
+const LongTime = time.Hour*720 + time.Microsecond*1981
+
 var SearchResultSample = []byte(`[
 	{
 		"Code": "SE0001192618",
@@ -55,28 +58,36 @@ func (srs *SearchResults) IsOlderThan(age time.Duration) (bool, error) {
 	return false, nil
 }
 
-func getCachedData(code string) (SearchResults, error) {
+func getCachedData(code string) (SearchResults, time.Duration, error) {
 	file, err := os.Open(code + ".json")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil // Because the file not existing isn't an error
+			return nil, LongTime, nil // Because the file not existing isn't an error
 		}
-		return nil, fmt.Errorf("open cache file: %w", err)
+		return nil, LongTime, fmt.Errorf("open cache file: %w", err)
 	}
 	defer file.Close()
+
+	info, err := file.Stat()
+
+	if err != nil {
+		return nil, LongTime, fmt.Errorf("get file info: %w", err)
+	}
+
+	fileAge := time.Until(info.ModTime()).Abs()
 
 	result := SearchResults{}
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return nil, fmt.Errorf("reading cached data: %w", err)
+		return nil, fileAge, fmt.Errorf("reading cached data: %w", err)
 	}
 
 	err = json.Unmarshal(data, &result)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshalling cached data: %w", err)
+		return nil, fileAge, fmt.Errorf("unmarshalling cached data: %w", err)
 	}
 
-	return result, nil
+	return result, fileAge, nil
 
 }
 
@@ -107,12 +118,12 @@ func Search(code string, api_token string) (SearchResults, error) {
 		return sample, err
 	}
 
-	cached, err := getCachedData(code)
+	cached, age, err := getCachedData(code)
 	if err != nil {
 		return SearchResults{}, fmt.Errorf("loading cached results: %w", err)
 	}
 	if cached != nil { // It's nil if there is no cache
-		old, err := cached.IsOlderThan(time.Hour * 48)
+		old := age.Hours() > 12
 		if err != nil {
 			return cached, fmt.Errorf("determining cache age: %w", err)
 		}
