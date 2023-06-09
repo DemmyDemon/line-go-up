@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"errors"
 	"fmt"
 	"image"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/DemmyDemon/line-go-up/eodhd"
 	"github.com/DemmyDemon/line-go-up/labelimage"
+	"github.com/golang/freetype/truetype"
 )
 
 const (
@@ -23,9 +25,23 @@ var (
 	GoodColor = color.RGBA{60, 128, 60, 255}
 )
 
+var (
+	//go:embed res
+	res embed.FS
+)
+
 func main() {
-	http.HandleFunc("/Handelsbanken_Multi_Asset_50.png", getImage)
-	err := http.ListenAndServe(":2468", nil)
+
+	font, err := ReadFont(res, "res/White Rabbit.ttf")
+	if err != nil {
+		fmt.Printf("Unable to load font: %s\n", err)
+	}
+
+	http.HandleFunc("/Handelsbanken_Multi_Asset_50.png",
+		func(w http.ResponseWriter, r *http.Request) {
+			getImage(w, r, font)
+		})
+	err = http.ListenAndServe(":2468", nil)
 	if err != nil {
 		if errors.Is(err, http.ErrServerClosed) {
 			fmt.Println("Server closed")
@@ -36,7 +52,23 @@ func main() {
 	}
 }
 
-func getImage(w http.ResponseWriter, r *http.Request) {
+func ReadFont(fs embed.FS, fontPath string) (*truetype.Font, error) {
+
+	fontBytes, err := fs.ReadFile(fontPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading font: %w", err)
+	}
+
+	f, err := truetype.Parse(fontBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing font: %w", err)
+	}
+
+	return f, nil
+
+}
+
+func getImage(w http.ResponseWriter, r *http.Request, font *truetype.Font) {
 	results, err := eodhd.Search(ISIN, os.Getenv("API_TOKEN"))
 	if err != nil {
 		fmt.Printf("Error fetching oedhd data: %s\n", err)
@@ -60,8 +92,13 @@ func getImage(w http.ResponseWriter, r *http.Request) {
 		textColor = GoodColor
 	}
 
-	// img := labelimage.Create(image.Rect(0, 0, 128, 32), color.RGBA{60, 100, 60, 255}, fmt.Sprintf("%0.4f", result.PreviousClose), true, true)
-	img := labelimage.Create(image.Rect(0, 0, 128, 32), textColor, offsetPercent, true, true)
+	lines := []string{
+		result.PreviousCloseDate,
+		fmt.Sprintf("%s%0.3f", result.Currency, result.PreviousClose),
+		offsetPercent,
+	}
+
+	img := labelimage.CreateWithFont(image.Rect(0, 0, 192, 64), font, textColor, lines, true, true)
 	w.WriteHeader(http.StatusOK)
 	err = png.Encode(w, img)
 	if err != nil {
