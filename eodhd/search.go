@@ -123,7 +123,7 @@ func Search(code string, api_token string) (SearchResults, error) {
 		return SearchResults{}, fmt.Errorf("loading cached results: %w", err)
 	}
 	if cached != nil { // It's nil if there is no cache
-		old := age.Hours() > 12
+		old := age.Hours() > 2
 		if err != nil {
 			return cached, fmt.Errorf("determining cache age: %w", err)
 		}
