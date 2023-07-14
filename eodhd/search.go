@@ -136,6 +136,7 @@ func Search(code string, api_token string) (SearchResults, error) {
 	if err != nil {
 		return SearchResults{}, fmt.Errorf("searching for %q: %w", code, err)
 	}
+	defer response.Body.Close()
 
 	results := SearchResults{}
 	dec := json.NewDecoder(response.Body)
